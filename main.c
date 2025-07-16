@@ -1,368 +1,291 @@
-#include"myheader.h"
-//#define SERIALPORT  1
-int found(char * card,BANK *head);
-int pin_check(char * card_pin,int card,BANK *head);
-void withdraw(int total_amount,char * card,BANK *head);
+#include "header.h"
+unsigned char r_flag,flag,choice,c;
+char buff[100],dummy,pin[5],ch,ch1,rx[30],msg[10]="quit",msg1[10]="exit",msg2[10]="delete";
+int i,cs=0,amount,m;
+void UART0_isr(void) __irq
+{
+	int j;
+	j=U0IIR;	
+	
+	if((j & 0x0f)==0x04) //check if receive interrupt
+	  {
+//	  	CmdLCD(0x01);
+	   	ch1= U0RBR;
+	  	//CharLCD(ch1);
+	   	if(ch1=='$')
+		{
+		  //CmdLCD(0x01);
+		 flag=1;
+		 
+		 i=0;
+		}
+		else if((flag==1)&&(ch1!='&'))
+		{
+			rx[i++]=ch1;
+		}
+		else if(ch1=='&')
+		{
+			rx[i]='\0';
+			flag=2;
+			i=0;
+			CmdLCD(0x01);	
+		}
+	} 
+	else
+	{
+		dummy=U0IIR;
+	}
+	VICVectAddr = 0; 
+} 
+void UART1_isr(void) __irq
+{
+	if((U1IIR & 0x04)) //check if receive interrupt
+	  {
+	  ch = U1RBR;	/* Read to Clear Receive Interrupt */
+	  if(ch==0x02)
+		{
+			r_flag=1;
+			i=0;
+	   	}
+		else if((r_flag==1)&&(ch!= 0x03))
+		{  
+				buff[i++] = ch;
+		}
+		else
+		{
+			buff[i] = '\0';
+			r_flag = 2;
+			i=0;
+		}
+	}
+	else
+  	{
+      dummy=U1IIR;
+  	}
+   VICVectAddr = 0; /* dummy write */
+}
 
-int  fd,tx=0,total_amount,attempt,pin,choice,balance;
-char card_num[10],ch,acc_no[10];
 int main()
 {
-        STOCK *head=NULL,*item=NULL;
-	BANK * account=NULL;
-        head=syncfromfile(head);
-	account=sync_bank(account);
-	puts("Opening serial port\n");
-	if ((fd = serialOpen ("/dev/ttyUSB0",9600)) < 0)
-        {
-
-                fprintf (stderr, "Unable to open serial device: %s\n", strerror (errno)) ;
-                return 1 ;
-        }
-        puts("serial port is opened\n");
-	usleep(10);
-	printf(".....STOCK DETAILS....\n");
-	print(head);
-	printf(".....BANK DETAILS.....\n");
-	print_bank(account);
+	InitUART1();
+	InitUART0();
+	Keypad_Init();
+	InitLCD(); 
+	Int_Enable();
+	StrLCD("**V24HE5P7**");
+	delay_s(5);
+	CmdLCD(0x01);
+	StrLCD("RFID BILLING SYSTEM");
+	delay_s(5);
+	CmdLCD(0x01);
+	StrLCD("1:Entry 2:coustmer");
+	CmdLCD(0x01);
+	StrLCD("3:DELETE");
+	CmdLCD(0x01);
+	StrLCD("press entry key");
 	while(1)
 	{
-w:
-		#ifdef SERIALPORT
+		m:cs=0;
+		if(cs==1)
 		{
-			 printf("enter the card number\n");
-	       	 	 scanf("%s",card_num);
-		}
-		#else
-		{
-			  printf("waiting for the card\n");
-			  serialGetstr(fd,card_num);
-			  puts(card_num);
-			  
-		}
-		#endif
-		if(strcmp(card_num,"12547508")==0)
-		{       
-			printf(".....manager section.....\n");
-		//	ch='m';
-		//	sleep(1);
-		//	write(fd,&ch,1);
-			serialPutstr(fd,"$manager&");
-			l1:printf("1 bank 2 stock 3 exit\n");
-			scanf("%d",&choice);
-			if(choice==3)
-				goto w;
-			else if(choice==2)
+			cs=0;
+			CmdLCD(CLEAR_LCD);
+			StrLCD("Waiting for card..");
+			r_flag=0;
+			while(r_flag<2);
+			CmdLCD(0x01);
+			StrLCD("card read:");
+			StrLCD(buff);
+			UART0_Str(buff);
+			flag=0;
+			while(flag<2);
+			if(rx[i]=='m')
 			{
-				while(1)
-				{
-					#ifdef SERIALPORT
-					{
-						scanf("%s",card_num);
-					}
-					#else
-					{
-						serialGetstr(fd,card_num);
-					}
-					#endif
-					if(strcmp(card_num,"quit")!=0)
-					{	
-						head=add(head,card_num);
-						printf("item added\n");
-						serialPutstr(fd,"$item added&");
-
-						goto l1;
-					}
-					else
-					{
-						break;
-					}
-				}
-				save(head);
+				StrLCD("manager");
+			    delay_s(3);
 			}
-			else if(choice==1)
+			else if(rx[i]=='c')
 			{
-				 while(1)
-                        	{
-					printf("create new account\n");
-					 #ifdef SERIALPORT
-                                        {
-						 printf("enter the card number\n");
-                                                 scanf("%s",card_num);
-                                        }
-                                        #else
-                                        {
-						 printf("waiting for the  card number\n");
-                                                 serialGetstr(fd,card_num);
-                                        }
-                                        #endif
-                        		if(strcmp(card_num,"quit")!=0)
-                        		{
-                                		account=add_account(account,card_num);
-						goto l1;
-                        		}
-                        		else
-                        		{
-						break;
-					}
-                        	}
-				save_bank(account);
-
+				StrLCD("customer");
+			    delay_s(3);
 			}
 			else
 			{
-				goto l1;
+				StrLCD(rx);
 			}
-		}
-		if(strcmp(card_num,"12553473")==0)
+			memset(buff,'\0',sizeof(buff));
+			memset(rx,'\0',sizeof(rx));
+			goto m;		   
+			}
+		if(cs==3)
 		{
-			printf(".....STOCK DETAILS....\n");
-			print(head);
-			printf("....customer section....\n");
-			serialPutstr(fd,"$customer&");
-			while(1)
+			UART0_Str(msg);
+			UART0_Str(msg1);
+			cs=0;
+			r_flag=0;
+			while(flag<2);
+			CmdLCD(0x01);
+			if(strcmp(rx,"list is empty")==0)
 			{
-				 #ifdef SERIALPORT
-                                   {
-					   printf("enter the  card number\n");
-                                           scanf("%s",card_num);
-                                    }
-                                 #else
-                                    {
-					    printf("waiting for the  card number\n");
-                                            serialGetstr(fd,card_num);
-                                    }
-                                  #endif
-				if(strcmp(card_num,"quit")!=0)
-				{
-  					item=cust_item(head,item,card_num);
-				}
-				else
-				{
-					break;
-				}
-			}		
-		}
-		if(strcmp(card_num,"exit")==0)
-		{
-			char ch,k=0;
-			print(item);
-			total_amount=0;
-			if(item==NULL)
-			{
-				serialPutstr(fd,"$list is empty&");
-				goto w;
+				CmdLCD(0x01);
+				StrLCD(rx);
+				delay_ms(2000);
+				CmdLCD(0x01);
+				StrLCD("press entry key");
+				goto m;
 			}
-			else 
+			b:StrLCD("1.cash 2.card");			
+			choice=KeyDetect();
+			 CmdLCD(0x01);
+			 CharLCD(choice);
+			 delay_ms(1000);
+			CmdLCD(0x01);
+			if(choice=='2')
 			{
-				serialPutstr(fd,"$ok&");
-			}
-			while(item)
-			{
-				total_amount+=(item->quentity)*(item->cost);
-				item=item->link;
-			}
-			printf("Total Amount:%d\n",total_amount);
-			//serialGetstr(fd,card_num);
-		a:	ch=serialGetchar(fd);
-			if(ch=='1')
-			{
-l:				printf("offline paymt\n");
-				serialGetstr(fd,card_num);
-                                int i,amount=0;
-				for(i=0;card_num[i];i++)
-                                {
-					amount=(amount*10+card_num[i])-48;
-                                }
-				printf("%d",amount);
-				if(amount==total_amount)
+				uart0_tx(choice);		
+				a:StrLCD("Waiting for card..");
+				r_flag=0;			
+				memset(rx,'\0',30);
+				while(r_flag<2);
+				CmdLCD(0x01);
+				StrLCD("card read:");
+				StrLCD(buff);
+				UART0_Str(buff);
+				flag=0;
+				while(flag<2);
+				StrLCD(rx);
+				if(strcmp(rx,"account found")==0)
 				{
-					printf("paymt sucess\n");
-					serialPutstr(fd,"$paymt sucess&");
-					goto w;
-				}
-				else
-				{
-					k++;
-					printf("paymt failed\n");
-					if(k<3)
+			
+					p:CmdLCD(0x01);
+					StrLCD("enter the pin");
+					CmdLCD(0xc0);
+					for(m=0;m<4;m++)
 					{
-						serialPutstr(fd,"$retry&");
+						pin[m]=KeyDetect();
+						delay_ms(200);
+						CharLCD(pin[m]);
+					}
+					pin[m]='\0';
+					UART0_Str(pin);
+					memset(rx,'\0',sizeof(rx));
+					flag=0;
+					while(flag<2);
+					StrLCD(rx);
+					if(strcmp(rx,"wrong_pin")==0)
+					{
+						 goto p;
+					}
+					/*memset(rx,'\0',sizeof(rx));
+					flag=0;
+					while(flag<2);
+					StrLCD(rx);*/
+					delay_ms(2000);
+					if(strcmp(rx,"insuff_balance")==0)
+					{													
+						CmdLCD(0x01);			    
+						goto b;
+					}
+					else if(strcmp(rx,"paytm success")==0)
+					{
+						CmdLCD(0x01);
+						StrLCD("THANK YOU !");
+						delay_ms(2000);
+						CmdLCD(0x01);
+						StrLCD("press entry key");
+						goto m;
+					}
+					else if(strcmp(rx,"paytm_failed")==0)
+					{
+					  goto a;
+					}
+
+				}
+				else
+				{
+					goto a;
+				}
+				delay_s(3);
+				memset(buff,'\0',sizeof(buff));
+				memset(rx,'\0',sizeof(rx));
+			}
+			else
+			{
+				uart0_tx(choice);
+			l:	CmdLCD(0x01);
+					StrLCD("enter the amount");
+					CmdLCD(0xC0);
+					m=0;
+					while(1)
+					{
+						c=KeyDetect();
+						delay_ms(100);
+						if((c>='0')&&(c<='9'))
+						{
+							pin[m]=c;
+							CharLCD(pin[m++]);
+						}
+						else
+						{
+							pin[m]='\0';
+							break;
+						}
+					}
+					UART0_Str(pin);
+					flag=0;
+					while(flag<2);
+					CmdLCD(0x01);
+					StrLCD(rx);
+					if(strcmp(rx,"retry")==0)
+					{
 						goto l;
 					}
-					else
+					else if(strcmp(rx,"paymt failed")==0)
 					{
-						serialPutstr(fd,"$paymt failed &");
-						goto w;
+						delay_ms(2000);
+						CmdLCD(0x01);
+						StrLCD("press entry key");
+						cs=0;
 					}
-				}				
+					if(strcmp(rx,"paymt sucess"))
+					{
+						CmdLCD(0x01);
+						StrLCD("Thank You");
+						delay_ms(2000);
+						CmdLCD(0x01);
+						StrLCD("press entry key");
+						cs=0;
+					}
+		 			}
+		}
+		if(cs==2)
+		{
+			UART0_Str(msg);
+			UART0_Str(msg2);
+			cs=0;
+			CmdLCD(0x01);
+			StrLCD("delete item");
+			r_flag=0;
+			while(r_flag<2);
+			CmdLCD(0x01);
+			StrLCD("card read:");
+			StrLCD(buff);
+			UART0_Str(buff);
+		//	UART0_Str("\r\n");
+			flag=0;
+			while(flag<2);
+		 	if(strcmp(rx,"item deleted")==0)
+		 	{
+				StrLCD(rx);
+				delay_s(3);
 			}
 			else
 			{
-			#ifdef SERIALPORT
-			{
-				printf("enter the  card number\n");
-				l3:scanf("%s",card_num);
+				StrLCD("item not found");
+				delay_s(2);
 			}
-			#else
-			{
-				printf("waiting for the  card number\n");
-				//memset(card_num,'\0',10);
-				l3:serialGetstr(fd,card_num);
-			}
-			#endif
-			if(found(card_num,account))
-			 {
-				 strcpy(acc_no,card_num);
-				serialPutstr(fd,"$account found&");
-			       	attempt=0;
-				 #ifdef SERIALPORT
-				 {
-					l2: printf("enter the  pin number\n");
-					scanf("%d",&pin);
-                                 }
-                                 #else
-                                 {
-					l2:printf("waiting for the pin number\n");
-               				serialGetstr(fd,card_num);
-					int i;
-					pin=0;
-        	                           for(i=0;i<4;i++)
-	                                   {
-                	                           pin=(pin*10+card_num[i])-48;
-                        	           }
-						//printf("PIN=%d\n",pin);
-
-                                 }
-                                 #endif
-				 if(balance=(pin_check(acc_no,pin,account)))
-				 {
-					 if(total_amount<balance)
-					 {
-						 withdraw(total_amount,card_num,account);
-						 printf("paymt successfully\n");
-						 serialPutstr(fd,"$paytm success&");
-						 save(head);
-						 total_amount=0;
-						 goto w;
-						// return 0;
-					 }
-					 else
-					 {
-						 printf("insufficient balance\n");
-						 serialPutstr(fd,"$insuff_balance&");
-						 goto a;
-
-					 }
-				 }
-				 else if(attempt==3)
-				 {
-					 printf("paytm falied\n");
-					 serialPutstr(fd,"$paytm failed&");
-					goto w;
-					// break;
-				 }
-				 else
-				 {
-					 attempt++;
-					 printf("wrong pin\n");
-					 serialPutstr(fd,"$wrong pin&");
-					 goto l2;
-				 }
-			 }
-			 else
-			 {
-				 printf("not found\n");
-				 serialPutstr(fd,"$not found&");
-				 goto l3;
-			 }
-
+			memset(buff,'\0',sizeof(buff));
+			memset(rx,'\0',sizeof(rx));	
 		}
-		}
-		if(strcmp(card_num,"delete")==0)
-                {
-                        printf("....Delete Item....\n");
-                        while(1)
-                        {
-				 #ifdef SERIALPORT
-                                  {
-					  printf("enter the card number\n");
-					  scanf("%s",card_num);
-                                  }
-				#else
-                                  {
-					printf("waiting for the  card number\n");
-                               		serialGetstr(fd,card_num);
-                                  }
-                                #endif
-                                if(strcmp(card_num,"quit")!=0)
-                                {
-                                	item=del_item(item,card_num);
-                                	printf("item deleted\n");
-					serialPutstr(fd,"$item deleted&");
-
-                                }
-                                else
-                                {
-                                        break;
-                                }
-                        }
-                }
-
 	}
-	serialClose(fd);
-        puts("Closing serial port\n");
-        return 0 ;
 }
-
-int found(char * card,BANK *head)
-{
-	BANK *check=NULL;
-	check=head;
-	printf("Cardno: %s\n",card);
-	while(check!=NULL)
-	{
-		if(strcmp(check->bank_no,card)==0)
-		{
-			return 1;
-		}
-		check=check->link;
-	}
-	return 0;
-}
-int pin_check(char * card_pin,int card,BANK *head)
-{
-        BANK *check=NULL;
-        check=head;
-	printf("card no=%s\n",card_pin);
-//	printf("PIN=%d\n",card);
-        while(check!=NULL)
-        {
-                if(strcmp(check->bank_no,card_pin)==0)
-                {
-			printf("PIN=%d\n",card);
-			if(check->pin==card)
-			{
-				return check->amount;
-			}
-                }
-                check=check->link;
-        }
-        return 0;
-}  
-void withdraw(int total_amount,char * card,BANK *head)
-{
-        BANK *check=NULL;
-        check=head;
-        while(check!=NULL)
-        {
-                if(strcmp(check->bank_no,card)==0)
-                {
-                        check->amount=check->amount-total_amount;
-			break;
-                }
-                check=check->link;
-        }
-	save_bank(head);
-}
-
